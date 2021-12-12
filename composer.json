@@ -1,0 +1,33 @@
+{
+	"name": "mstodulski/rbac",
+	"license": "MIT",
+	"description": "",
+	"keywords": ["library", "authorization", "authentication", "rbac"],
+	"homepage": "https://devsprint.pl",
+	"repositories": [
+		{
+			"type": "vcs",
+			"url": "https://github.com/mstodulski/session.git"
+		}
+	],
+	"authors": [
+		{
+			"name": "Marcin Stodulski",
+			"homepage": "https://devsprint.pl",
+			"role": "Developer"
+		}
+	],
+	"autoload": {
+		"psr-4": {
+			"mstodulski\\rbac\\": "src"
+		},
+		"exclude-from-classmap": [
+			"/test/"
+		]
+	},
+	"require": {
+		"php": ">=8.1",
+		"mstodulski/session": "1.0.*",
+		"phpunit/phpunit": "9.5.*"
+	}
+}
