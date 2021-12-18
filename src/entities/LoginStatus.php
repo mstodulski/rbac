@@ -8,10 +8,13 @@
  * file that was distributed with this source code.
  */
 
-namespace mstodulski\rbac\interfaces;
+namespace mstodulski\rbac\entities;
 
-interface PermissionInterface
+enum LoginStatus
 {
-    public function getParent(): ?PermissionInterface;
-    public function getCode(): string;
+    case NotLogged;
+    case Logged;
+    case NeedSecondStep;
+    case TokenIncorrect;
+    case TokenExpired;
 }

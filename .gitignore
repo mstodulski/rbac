@@ -5,3 +5,5 @@
 
 /nbproject/
 /.idea/
+/tests/.phpunit.result.cache
+/tests/.phpunit.cache

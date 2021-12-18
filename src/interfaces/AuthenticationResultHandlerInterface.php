@@ -10,8 +10,10 @@
 
 namespace mstodulski\rbac\interfaces;
 
-interface PermissionInterface
+interface AuthenticationResultHandlerInterface
 {
-    public function getParent(): ?PermissionInterface;
-    public function getCode(): string;
+    public function success(UserInterface $user);
+    public function failed(string $login);
+    public function secondStepFailed(string $login);
+    public function secondStepTokenExpired(string $login);
 }

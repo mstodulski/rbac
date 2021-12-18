@@ -29,7 +29,7 @@ class PasswordProvider {
 
     public function checkPassword(UserInterface $user, $password): bool
     {
-        $hash = $this->encodePassword($user, $password);
+        $hash = $this->encodePassword($user, $password, $user->getSalt());
         return ($user->getPassword() === $hash);
     }
 }

@@ -13,13 +13,15 @@ namespace mstodulski\rbac\services;
 use DateInterval;
 use DateTime;
 use Exception;
+use mstodulski\rbac\entities\LoginStatus;
+use mstodulski\rbac\interfaces\AuthenticationResultHandlerInterface;
 use mstodulski\rbac\interfaces\TokenSenderInterface;
 use mstodulski\rbac\interfaces\UserInterface;
 use mstodulski\rbac\interfaces\UserProviderInterface;
 use mstodulski\session\Session;
 
-class Authenticator {
-
+class Authenticator
+{
     const _AUTHORIZATION_DATA_PATH = 0;
     const _LOGGED_USER_LOGIN_PATH = 1;
     const _PASSWORD_HASH_PATH = 2;
@@ -29,14 +31,9 @@ class Authenticator {
     const _TOKEN_LOGIN = 6;
     const _SECOND_STEP = 7;
 
-    const _LOGIN_STATUS_NOT_LOGGED = 0;
-    const _LOGIN_STATUS_LOGGED = 1;
-    const _LOGIN_STATUS_NEED_SECOND_STEP = 2;
-    const _LOGIN_STATUS_TOKEN_INCORRECT = 3;
-    const _LOGIN_STATUS_TOKEN_EXPIRED = 4;
-
     private ?UserProviderInterface $userProvider;
     private ?TokenSenderInterface $tokenSender;
+    private ?AuthenticationResultHandlerInterface $authenticationResultHandler;
 
     public static function getSessionDataPaths(): array
     {
@@ -52,13 +49,157 @@ class Authenticator {
         );
     }
 
-    public function __construct(UserProviderInterface $userProvider, TokenSenderInterface $tokenSender = null)
-    {
+    public function __construct(
+        UserProviderInterface $userProvider,
+        TokenSenderInterface $tokenSender = null,
+        AuthenticationResultHandlerInterface $authenticationResultHandler = null
+    ) {
         $this->userProvider = $userProvider;
         $this->tokenSender = $tokenSender;
+        $this->authenticationResultHandler = $authenticationResultHandler;
     }
 
-    private function saveLoggedUserData(UserInterface $user, bool $rememberMe)
+    /** @throws Exception */
+    public function login(string $login, string $password, bool $rememberMe = false, int $expirationSeconds = null): LoginStatus
+    {
+        $user = $this->userProvider->getUser($login);
+
+        if (null !== $user) {
+            $passwordProvider = new PasswordProvider();
+            $res = $passwordProvider->checkPassword($user, $password);
+
+            if (!$res) {
+                $this->authenticationResultHandler?->failed($login);
+                return LoginStatus::NotLogged;
+            } else {
+                if ($user->isTwoFactorAuthentication()) {
+                    if ($this->tokenSender === null) {
+                        throw new Exception('Second factor token sender not defined');
+                    }
+
+                    $this->sendTokenToUser($user, $expirationSeconds);
+                    return LoginStatus::NeedSecondStep;
+                } else {
+                    $this->saveLoggedUserData($user, $rememberMe);
+                    $this->authenticationResultHandler?->success($user);
+                    return LoginStatus::Logged;
+                }
+            }
+
+        } else {
+            $this->authenticationResultHandler?->failed($login);
+            return LoginStatus::NotLogged;
+        }
+    }
+
+    public function logout() : void
+    {
+        Session::removeValueFromSession(self::_AUTHORIZATION_DATA_PATH, self::getSessionDataPaths());
+        if (isset($_COOKIE['logged'])) {
+            setcookie('logged', '', time() - 3600, '/');
+        }
+    }
+
+    /** @throws Exception */
+    public function checkSecondFactor(string $userToken, bool $rememberMe = false): LoginStatus
+    {
+        $token = Session::getValueFromSession(Authenticator::_TOKEN_PATH, Authenticator::getSessionDataPaths());
+        $date = Session::getValueFromSession(Authenticator::_TOKEN_EXPIRATION_DATE_PATH, Authenticator::getSessionDataPaths());
+        $login = Session::getValueFromSession(self::_TOKEN_LOGIN, self::getSessionDataPaths());
+
+        if (!method_exists($this->tokenSender, 'checkToken')) {
+            $expirationDate = new DateTime($date);
+            $now = new DateTime();
+
+            if ($expirationDate < $now) {
+                $this->authenticationResultHandler?->secondStepTokenExpired($login);
+                self::logout();
+                return LoginStatus::TokenExpired;
+            } else {
+                if ($userToken != $token) {
+                    $this->authenticationResultHandler?->secondStepFailed($login);
+                    return LoginStatus::TokenIncorrect;
+                } else {
+                    $user = $this->userProvider->getUser($login);
+                    $this->saveLoggedUserData($user, $rememberMe);
+                    $this->authenticationResultHandler?->success($user);
+                    return LoginStatus::Logged;
+                }
+            }
+        } else {
+            $user = $this->userProvider->getUser($login);
+            if ($this->tokenSender->checkToken($user, $userToken)) {
+                $this->saveLoggedUserData($user, $rememberMe);
+                $this->authenticationResultHandler?->success($user);
+                return LoginStatus::Logged;
+            } else {
+                $this->authenticationResultHandler?->secondStepFailed($login);
+                return LoginStatus::TokenIncorrect;
+            }
+        }
+    }
+
+    public function hardLoginByUserLogin(string $login): LoginStatus
+    {
+        $user = $this->userProvider->getUser($login);
+        $this->saveLoggedUserData($user, false);
+        $this->authenticationResultHandler?->success($user);
+        return LoginStatus::Logged;
+    }
+
+    public function checkUserLoginStatus(): LoginStatus
+    {
+        $login = Session::getValueFromSession(self::_LOGGED_USER_LOGIN_PATH, self::getSessionDataPaths());
+        $secondFactorExpirationDate = Session::getValueFromSession(self::_TOKEN_EXPIRATION_DATE_PATH, self::getSessionDataPaths());
+
+        if (($login === null) && ($secondFactorExpirationDate === null)) {
+            self::logout();
+            return LoginStatus::NotLogged;
+        } elseif ($secondFactorExpirationDate !== null) {
+            if (strtotime($secondFactorExpirationDate) < time()) {
+                Session::removeValueFromSession(self::_TOKEN_PATH, self::getSessionDataPaths());
+                return LoginStatus::NotLogged;
+            } else {
+                return LoginStatus::NeedSecondStep;
+            }
+        }
+
+        $user = $this->userProvider->getUser($login);
+
+        if ($user->getLogin() !== null) {
+            if (md5($user->getPassword()) == Session::getValueFromSession(self::_PASSWORD_HASH_PATH, self::getSessionDataPaths())) {
+                $this->authenticationResultHandler?->success($user);
+                return LoginStatus::Logged;
+            } else {
+                self::logout();
+                return LoginStatus::NotLogged;
+            }
+        } else {
+            self::logout();
+            return LoginStatus::NotLogged;
+        }
+    }
+
+    public static function getLoggedUser(): ?UserInterface
+    {
+        /** @noinspection */
+        return Session::getValueFromSession(self::_USER, self::getSessionDataPaths());
+    }
+
+    public function hardLoginIfNotLogged($login): bool
+    {
+        $hardLogged = false;
+        $loginStatus = $this->checkUserLoginStatus();
+
+        if ($loginStatus !== LoginStatus::Logged) {
+            $this->hardLoginByUserLogin($login);
+            $hardLogged = true;
+        }
+
+        return $hardLogged;
+    }
+
+    private function saveLoggedUserData(UserInterface $user, bool $rememberMe) : void
     {
         if (!$user->isInternalUser()) {
             Session::removeValueFromSession(self::_SECOND_STEP, self::getSessionDataPaths());
@@ -72,12 +213,17 @@ class Authenticator {
         }
     }
 
-    private function generateToken(UserInterface $user) : string
+    /** @throws Exception */
+    private function generateToken(UserInterface $user, int $expirationSeconds = null) : string
     {
         $token = rand(100000, 999999);
 
         $currentDateTime = new DateTime();
-        $currentDateTime->add(new DateInterval('PT5M'));
+        if ($expirationSeconds !== null) {
+            $currentDateTime->add(new DateInterval('PT' . $expirationSeconds . 'S'));
+        } else {
+            $currentDateTime->add(new DateInterval('PT5M'));
+        }
 
         Session::saveValueToSession(self::_TOKEN_PATH, $token, self::getSessionDataPaths());
         Session::saveValueToSession(self::_TOKEN_EXPIRATION_DATE_PATH, $currentDateTime->format('Y-m-d H:i:s'), self::getSessionDataPaths());
@@ -86,127 +232,10 @@ class Authenticator {
         return $token;
     }
 
-    /** @throws Exception */
-    private function sendTokenToUser(UserInterface $user)
+    /**@throws Exception */
+    private function sendTokenToUser(UserInterface $user, $expirationSeconds = null) : void
     {
-        if (null !== $this->tokenSender) {
-            $token = $this->generateToken($user);
-            $this->tokenSender->sendToken($user, $token);
-        } else {
-            throw new Exception('Authenticator does not have configured TokenSender');
-        }
-    }
-
-    /** @throws Exception */
-    public function checkSecondFactor(string $userToken, bool $rememberMe = false): int
-    {
-        $token = Session::getValueFromSession(Authenticator::_TOKEN_PATH, Authenticator::getSessionDataPaths());
-        $date = Session::getValueFromSession(Authenticator::_TOKEN_EXPIRATION_DATE_PATH, Authenticator::getSessionDataPaths());
-        $login = Session::getValueFromSession(self::_TOKEN_LOGIN, self::getSessionDataPaths());
-
-        if (!method_exists($this->tokenSender, 'checkToken')) {
-            $expirationDate = new DateTime($date);
-            $now = new DateTime();
-
-            if ($expirationDate < $now) {
-                return self::_LOGIN_STATUS_TOKEN_EXPIRED;
-            } else {
-                if ($userToken != $token) {
-                    return self::_LOGIN_STATUS_TOKEN_INCORRECT;
-                } else {
-                    $user = $this->userProvider->getUser($login);
-                    $this->saveLoggedUserData($user, $rememberMe);
-                    return self::_LOGIN_STATUS_LOGGED;
-                }
-            }
-        } else {
-            $user = $this->userProvider->getUser($login);
-            if ($this->tokenSender->checkToken($user, $userToken)) {
-                $this->saveLoggedUserData($user, $rememberMe);
-                return self::_LOGIN_STATUS_LOGGED;
-            }
-        }
-
-        return self::_LOGIN_STATUS_NOT_LOGGED;
-    }
-
-    /** @throws Exception */
-    public function login(string $login, string $password, bool $rememberMe = false): int
-    {
-        $user = $this->userProvider->getUser($login);
-        if (null !== $user) {
-            $passwordProvider = new PasswordProvider();
-            $res = $passwordProvider->checkPassword($user, $password);
-
-            if (!$res) {
-                return self::_LOGIN_STATUS_NOT_LOGGED;
-            } else {
-                if ($user->isTwoFactorAuthentication() && ($this->tokenSender !== null)) {
-                    $this->sendTokenToUser($user);
-                    return self::_LOGIN_STATUS_NEED_SECOND_STEP;
-                } else {
-                    $this->saveLoggedUserData($user, $rememberMe);
-                    return self::_LOGIN_STATUS_LOGGED;
-                }
-            }
-
-        } else {
-            return self::_LOGIN_STATUS_NOT_LOGGED;
-        }
-    }
-
-    public function hardLoginByUserLogin(string $login): int
-    {
-        $user = $this->userProvider->getUser($login);
-        $this->saveLoggedUserData($user, false);
-        return self::_LOGIN_STATUS_LOGGED;
-    }
-
-    public function checkUserLoginStatus(): int
-    {
-        $login = Session::getValueFromSession(self::_LOGGED_USER_LOGIN_PATH, self::getSessionDataPaths());
-
-        if ($login === null) {
-            return self::_LOGIN_STATUS_NOT_LOGGED;
-        }
-
-        $user = $this->userProvider->getUser($login);
-
-        if ($user->getLogin() !== null) {
-            if (md5($user->getPassword()) == Session::getValueFromSession(self::_PASSWORD_HASH_PATH, self::getSessionDataPaths())) {
-                return self::_LOGIN_STATUS_LOGGED;
-            } else {
-                $this->logout();
-                return self::_LOGIN_STATUS_NOT_LOGGED;
-            }
-        } else {
-            $this->logout();
-            return self::_LOGIN_STATUS_NOT_LOGGED;
-        }
-    }
-
-    public static function getLoggedUser(): ?UserInterface
-    {
-        /** @noinspection */
-        return Session::getValueFromSession(self::_USER, self::getSessionDataPaths());
-    }
-
-    public function logout()
-    {
-        Session::removeValueFromSession(self::_AUTHORIZATION_DATA_PATH, self::getSessionDataPaths());
-        setcookie('logged', '', time() - 3600, '/');
-    }
-
-    public function hardLoginIfNotLogged($login): bool
-    {
-        $hardLogged = false;
-        $loginStatus = $this->checkUserLoginStatus();
-
-        if ($loginStatus !== Authenticator::_LOGIN_STATUS_LOGGED) {
-            $this->hardLoginByUserLogin($login);
-            $hardLogged = true;
-        }
-
-        return $hardLogged;
+        $token = $this->generateToken($user, $expirationSeconds);
+        $this->tokenSender->sendToken($user, $token);
     }
 }

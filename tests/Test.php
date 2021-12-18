@@ -1,13 +1,19 @@
 <?php
 
+use mstodulski\rbac\entities\LoginStatus;
+use mstodulski\rbac\services\Authenticator;
 use mstodulski\rbac\services\Authorization;
+use mstodulski\session\Session;
 use PHPUnit\Framework\TestCase;
+use test\helpers\MockTokenSender;
+use test\helpers\MockTokenSenderWithCheckToken;
+use test\helpers\MockUserProvider;
 
 class Test extends TestCase
 {
     private Authorization $authorization;
     private array $roles;
-    
+
     public function setUp(): void
     {
         $this->authorization = new Authorization();
@@ -15,6 +21,152 @@ class Test extends TestCase
         $this->authorization->defineRoles(...$this->roles);
         $this->authorization->definePermissions(...$permissions);
         $this->authorization->processRolesAndPermissions();
+    }
+
+    /** @throws Exception */
+    public function testLoginSuccess()
+    {
+        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator->logout();
+        $authenticator->login(MockUserProvider::testValidUserName, MockUserProvider::testValidUserPassword);
+
+        $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
+        $authenticator->logout();
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    /** @throws Exception */
+    public function testLoginFailedExistingUserBadPassword()
+    {
+        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator->logout();
+        $authenticator->login(MockUserProvider::testValidUserName, uniqid());
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    /** @throws Exception */
+    public function testLoginFailedNotExistingUser()
+    {
+        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator->logout();
+        $authenticator->login(uniqid('non_existing_user'), uniqid());
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    public function testLoginSuccess2FATokenSenderNotExists()
+    {
+        $this->expectException(Exception::class);
+        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator->logout();
+        $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
+    }
+
+    /** @throws Exception */
+    public function testLoginSuccess2FA()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $loginResult = $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $loginResult);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+
+        $token = Session::getValueFromSession(Authenticator::_TOKEN_PATH, Authenticator::getSessionDataPaths());
+        $authenticator->checkSecondFactor($token);
+        $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
+
+        $authenticator->logout();
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    /** @throws Exception */
+    public function testLoginFailed2FA()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $loginStatus = $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $loginStatus);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+
+        $token = uniqid('bad_token');
+        $result = $authenticator->checkSecondFactor($token);
+        $this->assertEquals(LoginStatus::TokenIncorrect, $result);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+    }
+
+    /** @throws Exception */
+    public function testLoginSuccess2FAWithCheckToken()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSenderWithCheckToken());
+        $authenticator->logout();
+        $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+
+        $token = Session::getValueFromSession(Authenticator::_TOKEN_PATH, Authenticator::getSessionDataPaths());
+        $authenticator->checkSecondFactor($token);
+        $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
+
+        $authenticator->logout();
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    public function testHardLoginIfNotLoggedWithout2FA()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $authenticator->hardLoginByUserLogin(MockUserProvider::testValidUserName);
+        $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
+    }
+
+    public function testHardLoginIfNotLoggedWith2FA()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $authenticator->hardLoginIfNotLogged(MockUserProvider::testValidUserWith2FA);
+        $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
+
+        $loggedUser = Authenticator::getLoggedUser();
+        $this->assertEquals(MockUserProvider::testValidUserWith2FA, $loggedUser->getLogin());
+
+    }
+
+    /** @throws Exception */
+    public function testLoginWith2FATokenExpired()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $loginStatus = $authenticator->login(
+            MockUserProvider::testValidUserWith2FA,
+            MockUserProvider::testValidUserPasswordWith2FA,
+            false,
+            1
+        );
+        $this->assertEquals(LoginStatus::NeedSecondStep, $loginStatus);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+
+        sleep(2);
+
+        $token = Session::getValueFromSession(Authenticator::_TOKEN_PATH, Authenticator::getSessionDataPaths());
+        $checkSecondFactorStatus = $authenticator->checkSecondFactor($token);
+        $this->assertEquals(LoginStatus::TokenExpired, $checkSecondFactorStatus);
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
+    }
+
+    /** @throws Exception */
+    public function testLoginWith2FATokenExpiredGetLoginStatus()
+    {
+        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator->logout();
+        $loginStatus = $authenticator->login(
+            MockUserProvider::testValidUserWith2FA,
+            MockUserProvider::testValidUserPasswordWith2FA,
+            false,
+            1
+        );
+        $this->assertEquals(LoginStatus::NeedSecondStep, $loginStatus);
+        $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
+
+        sleep(2);
+        $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
     }
 
     public function testCheckSuperAdminPermissions()

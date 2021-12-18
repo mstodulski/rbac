@@ -19,7 +19,8 @@
 	],
 	"autoload": {
 		"psr-4": {
-			"mstodulski\\rbac\\": "src"
+			"mstodulski\\rbac\\": "src",
+			"test\\helpers\\": "tests/helpers"
 		},
 		"exclude-from-classmap": [
 			"/test/"
