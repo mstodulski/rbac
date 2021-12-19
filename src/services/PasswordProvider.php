@@ -21,15 +21,15 @@ class PasswordProvider {
         $this->hashAlgorithm = $hashAlgorithm;
     }
 
-    public function encodePassword(UserInterface $user, $password, $salt = null): string
+    public function encodePassword(UserInterface $user, string $password, ?string $salt = null): string
     {
         $newPassword = $password . sha1($user->getLogin()) . $salt;
         return hash($this->hashAlgorithm, $newPassword);
     }
 
-    public function checkPassword(UserInterface $user, $password): bool
+    public function checkPassword(UserInterface $user, string $password, ?string $salt): bool
     {
-        $hash = $this->encodePassword($user, $password, $user->getSalt());
+        $hash = $this->encodePassword($user, $password, $salt);
         return ($user->getPassword() === $hash);
     }
 }

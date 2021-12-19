@@ -9,7 +9,6 @@ class MockUser implements UserInterface
     private ?string $password;
     private bool $internalUser = false;
     private bool $twoFactorAuthentication = false;
-    private ?string $salt;
 
     public function getLogin() : ?string
     {
@@ -44,15 +43,5 @@ class MockUser implements UserInterface
     public function setTwoFactorAuthentication(bool $twoFactorAuthentication): void
     {
         $this->twoFactorAuthentication = $twoFactorAuthentication;
-    }
-
-    public function getSalt(): ?string
-    {
-        return $this->salt;
-    }
-
-    public function setSalt(?string $salt): void
-    {
-        $this->salt = $salt;
     }
 }

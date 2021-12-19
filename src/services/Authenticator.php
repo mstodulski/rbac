@@ -34,6 +34,7 @@ class Authenticator
     private ?UserProviderInterface $userProvider;
     private ?TokenSenderInterface $tokenSender;
     private ?AuthenticationResultHandlerInterface $authenticationResultHandler;
+    private ?string $salt = null;
 
     public static function getSessionDataPaths(): array
     {
@@ -51,12 +52,14 @@ class Authenticator
 
     public function __construct(
         UserProviderInterface $userProvider,
+        ?string $salt = null,
         TokenSenderInterface $tokenSender = null,
         AuthenticationResultHandlerInterface $authenticationResultHandler = null
     ) {
         $this->userProvider = $userProvider;
         $this->tokenSender = $tokenSender;
         $this->authenticationResultHandler = $authenticationResultHandler;
+        $this->salt = $salt;
     }
 
     /** @throws Exception */
@@ -66,7 +69,7 @@ class Authenticator
 
         if (null !== $user) {
             $passwordProvider = new PasswordProvider();
-            $res = $passwordProvider->checkPassword($user, $password);
+            $res = $passwordProvider->checkPassword($user, $password, $this->salt);
 
             if (!$res) {
                 $this->authenticationResultHandler?->failed($login);

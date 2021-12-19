@@ -4,6 +4,7 @@ namespace test\helpers;
 use mstodulski\rbac\interfaces\TokenSenderInterface;
 use mstodulski\rbac\interfaces\UserInterface;
 
+
 class MockTokenSender implements TokenSenderInterface
 {
     public function sendToken(UserInterface $user, $content)

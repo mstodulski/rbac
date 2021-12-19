@@ -13,6 +13,7 @@ class Test extends TestCase
 {
     private Authorization $authorization;
     private array $roles;
+    const salt = 'saltsaltsalt';
 
     public function setUp(): void
     {
@@ -26,7 +27,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginSuccess()
     {
-        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt);
         $authenticator->logout();
         $authenticator->login(MockUserProvider::testValidUserName, MockUserProvider::testValidUserPassword);
 
@@ -38,7 +39,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginFailedExistingUserBadPassword()
     {
-        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt);
         $authenticator->logout();
         $authenticator->login(MockUserProvider::testValidUserName, uniqid());
         $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
@@ -47,7 +48,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginFailedNotExistingUser()
     {
-        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt);
         $authenticator->logout();
         $authenticator->login(uniqid('non_existing_user'), uniqid());
         $this->assertEquals(LoginStatus::NotLogged, $authenticator->checkUserLoginStatus());
@@ -56,7 +57,7 @@ class Test extends TestCase
     public function testLoginSuccess2FATokenSenderNotExists()
     {
         $this->expectException(Exception::class);
-        $authenticator = new Authenticator(new MockUserProvider());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt);
         $authenticator->logout();
         $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
     }
@@ -64,7 +65,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginSuccess2FA()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $loginResult = $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
         $this->assertEquals(LoginStatus::NeedSecondStep, $loginResult);
@@ -81,7 +82,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginFailed2FA()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $loginStatus = $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
         $this->assertEquals(LoginStatus::NeedSecondStep, $loginStatus);
@@ -96,7 +97,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginSuccess2FAWithCheckToken()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSenderWithCheckToken());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSenderWithCheckToken());
         $authenticator->logout();
         $authenticator->login(MockUserProvider::testValidUserWith2FA, MockUserProvider::testValidUserPasswordWith2FA);
         $this->assertEquals(LoginStatus::NeedSecondStep, $authenticator->checkUserLoginStatus());
@@ -111,7 +112,7 @@ class Test extends TestCase
 
     public function testHardLoginIfNotLoggedWithout2FA()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $authenticator->hardLoginByUserLogin(MockUserProvider::testValidUserName);
         $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
@@ -119,7 +120,7 @@ class Test extends TestCase
 
     public function testHardLoginIfNotLoggedWith2FA()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $authenticator->hardLoginIfNotLogged(MockUserProvider::testValidUserWith2FA);
         $this->assertEquals(LoginStatus::Logged, $authenticator->checkUserLoginStatus());
@@ -132,7 +133,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginWith2FATokenExpired()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $loginStatus = $authenticator->login(
             MockUserProvider::testValidUserWith2FA,
@@ -154,7 +155,7 @@ class Test extends TestCase
     /** @throws Exception */
     public function testLoginWith2FATokenExpiredGetLoginStatus()
     {
-        $authenticator = new Authenticator(new MockUserProvider(), new MockTokenSender());
+        $authenticator = new Authenticator(new MockUserProvider(), self::salt, new MockTokenSender());
         $authenticator->logout();
         $loginStatus = $authenticator->login(
             MockUserProvider::testValidUserWith2FA,

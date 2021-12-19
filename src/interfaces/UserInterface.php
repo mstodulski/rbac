@@ -18,5 +18,4 @@ interface UserInterface {
     public function setPassword(string $password) : void;
     public function isInternalUser() : bool;
     public function isTwoFactorAuthentication() : bool;
-    public function getSalt() : ?string;
 }

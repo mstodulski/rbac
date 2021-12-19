@@ -9,11 +9,11 @@ use mstodulski\rbac\services\PasswordProvider;
 class MockUserProvider implements UserProviderInterface
 {
     protected PasswordProvider $passwordProvider;
-    protected string $salt = 'testtesttesttest';
     const testValidUserName = 'test';
     const testValidUserPassword = 'test';
     const testValidUserWith2FA = 'test2FA';
     const testValidUserPasswordWith2FA = 'test2FA';
+    const salt = 'saltsaltsalt';
 
     #[Pure] public function __construct()
     {
@@ -26,13 +26,11 @@ class MockUserProvider implements UserProviderInterface
         if ($login === self::testValidUserName) {
             $user = new MockUser();
             $user->setLogin(self::testValidUserName);
-            $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPassword, $this->salt));
-            $user->setSalt($this->salt);
+            $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPassword, self::salt));
         } elseif ($login === self::testValidUserWith2FA) {
             $user = new MockUser();
             $user->setLogin(self::testValidUserWith2FA);
-            $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPasswordWith2FA, $this->salt));
-            $user->setSalt($this->salt);
+            $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPasswordWith2FA, self::salt));
             $user->setTwoFactorAuthentication(true);
         }
 
@@ -46,13 +44,13 @@ class MockUserProvider implements UserProviderInterface
             if ($params['login'] === self::testValidUserName) {
                 $user = new MockUser();
                 $user->setLogin(self::testValidUserName);
-                $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPassword, $this->salt));
+                $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPassword, self::salt));
 
                 return $user;
             } elseif ($params['login'] === self::testValidUserWith2FA) {
                 $user = new MockUser();
                 $user->setLogin(self::testValidUserWith2FA);
-                $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPasswordWith2FA, $this->salt));
+                $user->setPassword($this->passwordProvider->encodePassword($user, self::testValidUserPasswordWith2FA, self::salt));
                 $user->setTwoFactorAuthentication(true);
             }
         }
